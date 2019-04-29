@@ -1,8 +1,16 @@
+mod render;
+
+use std::thread;
+
 const RAM_SIZE: usize = 0x1000;
 const STACK_SIZE: usize = 16;
 const DISPLAY_HEIGHT: usize = 32;
 const NUM_REGISTERS: usize = 16;
 const MEM_PROGRAM_START: u16 = 0x200;
+
+struct Program {
+    instructions: Vec<Instruction>,
+}
 
 enum Instruction {
     SYS(u16),
@@ -44,6 +52,10 @@ impl VM {
             reg_delay: 0,
             reg_sound: 0,
         }
+    }
+
+    pub fn run(&mut self, program: Program) {
+
     }
 
     pub fn execute(&mut self, instr: Instruction) {
@@ -104,7 +116,12 @@ fn create_sprite_mask(sprite: u8, x: u8) -> u64 {
 pub fn run() {
     let mut vm = VM::new();
     vm.execute(Instruction::DRW(0, 0, 0));
-    println!("We did it");
+
+    let renderer = render::Renderer::new();
+
+    thread::sleep_ms(2000);
+    renderer.render(24.0);
+    thread::sleep_ms(2000);
 }
 
 
