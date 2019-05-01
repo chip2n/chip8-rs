@@ -1,5 +1,5 @@
-use std::thread;
 use std::sync::mpsc;
+use std::thread;
 
 use ggez::conf;
 use ggez::event::{self, EventHandler, KeyCode, KeyMods};
@@ -8,9 +8,11 @@ use ggez::timer;
 use ggez::{Context, ContextBuilder, GameResult};
 use nalgebra;
 
+type Display = [u64; 32];
+
 pub struct Renderer {
     handle: thread::JoinHandle<()>,
-    sender: mpsc::Sender<f32>,
+    sender: mpsc::Sender<Display>,
 }
 
 impl Renderer {
@@ -19,10 +21,11 @@ impl Renderer {
 
         let handle = thread::spawn(|| {
             let c = conf::Conf::new();
-            let (ref mut ctx, ref mut event_loop) = &mut ContextBuilder::new("chip8", "Andreas Arvidsson")
-                .conf(c)
-                .build()
-                .expect("Unable to create ggex context!");
+            let (ref mut ctx, ref mut event_loop) =
+                &mut ContextBuilder::new("chip8", "Andreas Arvidsson")
+                    .conf(c)
+                    .build()
+                    .expect("Unable to create ggex context!");
 
             let mut game = MyGame::new(ctx, rx);
 
@@ -32,26 +35,23 @@ impl Renderer {
             }
         });
 
-        Renderer {
-            handle,
-            sender: tx,
-        }
+        Renderer { handle, sender: tx }
     }
 
-    pub fn render(&self, x: f32) {
-        self.sender.send(x);
+    pub fn render(&self, display: Display) {
+        self.sender.send(display).unwrap();
     }
 }
 
 struct MyGame {
     dt: std::time::Duration,
     pixel_mesh: Mesh,
-    x: f32,
-    receiver: mpsc::Receiver<f32>,
+    display: Display,
+    receiver: mpsc::Receiver<Display>,
 }
 
 impl MyGame {
-    fn new(ctx: &mut Context, receiver: mpsc::Receiver<f32>) -> MyGame {
+    fn new(ctx: &mut Context, receiver: mpsc::Receiver<Display>) -> MyGame {
         let mut rect = Rect::one();
         rect.scale(10.0, 10.0);
         let mesh = Mesh::new_rectangle(ctx, DrawMode::fill(), rect, Color::new(0.0, 1.0, 0.0, 1.0))
@@ -60,7 +60,7 @@ impl MyGame {
         MyGame {
             dt: std::time::Duration::new(0, 0),
             pixel_mesh: mesh,
-            x: 13.0,
+            display: [0; 32],
             receiver,
         }
     }
@@ -69,17 +69,29 @@ impl MyGame {
 impl EventHandler for MyGame {
     fn update(&mut self, ctx: &mut Context) -> GameResult<()> {
         self.dt = timer::delta(ctx);
-        if let Ok(x) = self.receiver.try_recv() {
-            self.x = x;
+        if let Ok(display) = self.receiver.try_recv() {
+            self.display = display;
         }
         Ok(())
     }
 
     fn draw(&mut self, ctx: &mut Context) -> GameResult<()> {
         println!("delta: {}", self.dt.subsec_nanos());
-        let my_dest = nalgebra::Point2::new(self.x, 37.0);
+
         graphics::clear(ctx, Color::new(1.0, 0.0, 0.0, 1.0));
-        graphics::draw(ctx, &self.pixel_mesh, DrawParam::default().dest(my_dest)).unwrap();
+
+        for (i, row) in self.display.iter().enumerate() {
+            if *row != 0 {
+                for x in 0..64 {
+                    let mask = (1 as u64) << (63 - x);
+                    if mask & row != 0 {
+                        let my_dest = nalgebra::Point2::new((10 * x) as f32, (i * 10) as f32);
+                        graphics::draw(ctx, &self.pixel_mesh, DrawParam::default().dest(my_dest))
+                            .unwrap();
+                    }
+                }
+            }
+        }
         graphics::present(ctx).unwrap();
         Ok(())
     }
