@@ -1,5 +1,7 @@
 mod render;
 
+use rand::rngs::mock::StepRng;
+use rand::Rng;
 use std::thread;
 use std::time::Duration;
 
@@ -30,8 +32,17 @@ pub enum Instruction {
     XOR(u8, u8),
     ADD2(u8, u8),
     SUB(u8, u8),
-
+    SHR(u8, u8),
+    SUBN(u8, u8),
+    SHL(u8, u8),
+    SNE2(u8, u8),
+    LDI(u16),
+    JPV0(u16),
+    RND(u8, u8),
     DRW(u8, u8, u8),
+    SKP(u8),
+    SKNP(u8),
+    LD3(u8),
 }
 
 struct VM {
@@ -39,11 +50,13 @@ struct VM {
     stack: [u16; STACK_SIZE],
     display: [u64; 32],
     gen_registers: [u8; NUM_REGISTERS],
+    keyboard: u16,
     reg_i: u16,
     reg_pc: u16,
     reg_sp: u8,
     reg_delay: u8,
     reg_sound: u8,
+    rng: Box<dyn rand::RngCore>,
 }
 
 impl VM {
@@ -57,11 +70,13 @@ impl VM {
             stack,
             display,
             gen_registers,
+            keyboard: 0,
             reg_i: 0,
             reg_pc: 0,
             reg_sp: 0,
             reg_delay: 0,
             reg_sound: 0,
+            rng: Box::new(rand::thread_rng()),
         }
     }
 
@@ -149,7 +164,7 @@ impl VM {
             }
             Instruction::SUB(x, y) => {
                 // TODO: Not sure this is the proper way to do subtraction
-                if self.gen_registers[x as usize] >= self.gen_registers[y as usize] {
+                if self.gen_registers[x as usize] > self.gen_registers[y as usize] {
                     let result = self.gen_registers[x as usize] - self.gen_registers[y as usize];
                     self.gen_registers[x as usize] = result;
                     self.gen_registers[0xF] = 1;
@@ -158,6 +173,56 @@ impl VM {
                     self.gen_registers[x as usize] = result;
                     self.gen_registers[0xF] = 0;
                 }
+                self.reg_pc += 1;
+            }
+            Instruction::SHR(x, _) => {
+                if self.gen_registers[x as usize] % 2 == 0 {
+                    self.gen_registers[0xF] = 0;
+                } else {
+                    self.gen_registers[0xF] = 1;
+                }
+                self.gen_registers[x as usize] = self.gen_registers[x as usize] >> 1;
+                self.reg_pc += 1;
+            }
+            Instruction::SUBN(x, y) => {
+                // TODO: Not sure this is the proper way to do subtraction
+                if self.gen_registers[y as usize] > self.gen_registers[x as usize] {
+                    let result = self.gen_registers[y as usize] - self.gen_registers[x as usize];
+                    self.gen_registers[x as usize] = result;
+                    self.gen_registers[0xF] = 1;
+                } else {
+                    let result = self.gen_registers[x as usize] - self.gen_registers[y as usize];
+                    self.gen_registers[x as usize] = result;
+                    self.gen_registers[0xF] = 0;
+                }
+                self.reg_pc += 1;
+            }
+            Instruction::SHL(x, _) => {
+                if self.gen_registers[x as usize] >= 0b10000000 {
+                    self.gen_registers[0xF] = 1;
+                } else {
+                    self.gen_registers[0xF] = 0;
+                }
+                self.gen_registers[x as usize] = self.gen_registers[x as usize] << 1;
+                self.reg_pc += 1;
+            }
+            Instruction::SNE2(x, y) => {
+                if self.gen_registers[x as usize] != self.gen_registers[y as usize] {
+                    self.reg_pc += 2;
+                } else {
+                    self.reg_pc += 1;
+                }
+            }
+            Instruction::LDI(addr) => {
+                self.reg_i = addr;
+                self.reg_pc += 1;
+            }
+            Instruction::JPV0(addr) => {
+                self.reg_pc = addr + self.gen_registers[0] as u16;
+            }
+            Instruction::RND(x, byte) => {
+                let value = (*(self.rng)).next_u32() as u8;
+                self.gen_registers[x as usize] = value & byte;
                 self.reg_pc += 1;
             }
             Instruction::DRW(x, y, n) => {
@@ -178,6 +243,28 @@ impl VM {
 
                     self.display[(vy + i) as usize] = result;
                 }
+                self.reg_pc += 1;
+            }
+            Instruction::SKP(x) => {
+                let key = self.gen_registers[x as usize];
+                let mask = 1 << (15 - key);
+                if mask & self.keyboard == 0 {
+                    self.reg_pc += 1;
+                } else {
+                    self.reg_pc += 2;
+                }
+            }
+            Instruction::SKNP(x) => {
+                let key = self.gen_registers[x as usize];
+                let mask = 1 << (15 - key);
+                if mask & self.keyboard == 0 {
+                    self.reg_pc += 2;
+                } else {
+                    self.reg_pc += 1;
+                }
+            }
+            Instruction::LD3(x) => {
+                self.gen_registers[x as usize] = self.reg_delay;
                 self.reg_pc += 1;
             }
             _ => {}
@@ -481,6 +568,153 @@ mod test {
     }
 
     #[test]
+    fn instr_sub_equal() {
+        let mut vm = VM::new();
+        vm.gen_registers[1] = 3;
+        vm.gen_registers[2] = 3;
+        vm.execute(Instruction::SUB(1, 2));
+
+        assert_eq!(vm.gen_registers[1], 0);
+        assert_eq!(vm.gen_registers[0xF], 0);
+        assert_eq!(vm.reg_pc, 1);
+    }
+
+    #[test]
+    fn instr_shr_odd() {
+        let mut vm = VM::new();
+        vm.gen_registers[1] = 0b111;
+        vm.execute(Instruction::SHR(1, 2));
+
+        assert_eq!(vm.gen_registers[1], 0b11);
+        assert_eq!(vm.gen_registers[0xF], 1);
+        assert_eq!(vm.reg_pc, 1);
+    }
+
+    #[test]
+    fn instr_shr_even() {
+        let mut vm = VM::new();
+        vm.gen_registers[1] = 0b100;
+        vm.gen_registers[0xF] = 2; // to make sure register is set to zero
+        vm.execute(Instruction::SHR(1, 2));
+
+        assert_eq!(vm.gen_registers[1], 0b10);
+        assert_eq!(vm.gen_registers[0xF], 0);
+        assert_eq!(vm.reg_pc, 1);
+    }
+
+    #[test]
+    fn instr_subn_noborrow() {
+        let mut vm = VM::new();
+        vm.gen_registers[1] = 2;
+        vm.gen_registers[2] = 3;
+        vm.execute(Instruction::SUBN(1, 2));
+
+        assert_eq!(vm.gen_registers[1], 1);
+        assert_eq!(vm.gen_registers[0xF], 1);
+        assert_eq!(vm.reg_pc, 1);
+    }
+
+    #[test]
+    fn instr_subn_borrow() {
+        let mut vm = VM::new();
+        vm.gen_registers[1] = 3;
+        vm.gen_registers[2] = 2;
+        vm.gen_registers[0xF] = 2; // to make sure register is set to zero
+        vm.execute(Instruction::SUBN(1, 2));
+
+        assert_eq!(vm.gen_registers[1], 1);
+        assert_eq!(vm.gen_registers[0xF], 0);
+        assert_eq!(vm.reg_pc, 1);
+    }
+
+    #[test]
+    fn instr_subn_even() {
+        let mut vm = VM::new();
+        vm.gen_registers[1] = 3;
+        vm.gen_registers[2] = 3;
+        vm.gen_registers[0xF] = 2; // to make sure register is set to zero
+        vm.execute(Instruction::SUBN(1, 2));
+
+        assert_eq!(vm.gen_registers[1], 0);
+        assert_eq!(vm.gen_registers[0xF], 0);
+        assert_eq!(vm.reg_pc, 1);
+    }
+
+    #[test]
+    fn instr_shr_nooverflow() {
+        let mut vm = VM::new();
+        vm.gen_registers[1] = 0b11000000;
+        vm.execute(Instruction::SHL(1, 2));
+
+        assert_eq!(vm.gen_registers[1], 0b10000000);
+        assert_eq!(vm.gen_registers[0xF], 1);
+        assert_eq!(vm.reg_pc, 1);
+    }
+
+    #[test]
+    fn instr_shr_overflow() {
+        let mut vm = VM::new();
+        vm.gen_registers[1] = 0b01000000;
+        vm.gen_registers[0xF] = 2; // to make sure register is set to zero
+        vm.execute(Instruction::SHL(1, 2));
+
+        assert_eq!(vm.gen_registers[1], 0b10000000);
+        assert_eq!(vm.gen_registers[0xF], 0);
+        assert_eq!(vm.reg_pc, 1);
+    }
+
+    #[test]
+    fn instr_sne2_skip() {
+        let mut vm = VM::new();
+        vm.gen_registers[1] = 8;
+        vm.gen_registers[2] = 9;
+
+        vm.execute(Instruction::SNE2(1, 2));
+
+        assert_eq!(vm.reg_pc, 2);
+    }
+
+    #[test]
+    fn instr_sne2_noskip() {
+        let mut vm = VM::new();
+        vm.gen_registers[1] = 10;
+        vm.gen_registers[2] = 10;
+
+        vm.execute(Instruction::SNE2(1, 2));
+
+        assert_eq!(vm.reg_pc, 1);
+    }
+
+    #[test]
+    fn instr_ldi() {
+        let mut vm = VM::new();
+        vm.execute(Instruction::LDI(0x555));
+
+        assert_eq!(vm.reg_i, 0x555);
+        assert_eq!(vm.reg_pc, 1);
+    }
+
+    #[test]
+    fn instr_jpv0() {
+        let mut vm = VM::new();
+        vm.gen_registers[0] = 3;
+        vm.execute(Instruction::JPV0(0x300));
+
+        assert_eq!(vm.reg_pc, 0x303);
+    }
+
+    #[test]
+    fn instr_rnd() {
+        let mut vm = VM::new();
+        vm.rng = Box::new(StepRng::new(0b110, 1));
+
+        vm.execute(Instruction::RND(1, 0b101));
+
+        assert_eq!(vm.gen_registers[1], 0b100);
+        assert_eq!(vm.reg_pc, 1);
+    }
+
+    #[test]
     fn instr_drw() {
         let mut vm = VM::new();
 
@@ -525,5 +759,50 @@ mod test {
 
         assert_eq!(vm.display[0], 0);
         assert_eq!(vm.gen_registers[0xF], 1);
+    }
+
+    #[test]
+    fn instr_skp_pressed() {
+        let mut vm = VM::new();
+        vm.gen_registers[1] = 3;
+        vm.keyboard = 0b0001000000000000;
+        vm.execute(Instruction::SKP(1));
+        assert_eq!(vm.reg_pc, 2);
+    }
+
+    #[test]
+    fn instr_skp_notpressed() {
+        let mut vm = VM::new();
+        vm.gen_registers[1] = 3;
+        vm.keyboard = 0b0010000000000000;
+        vm.execute(Instruction::SKP(1));
+        assert_eq!(vm.reg_pc, 1);
+    }
+
+    #[test]
+    fn instr_sknp_pressed() {
+        let mut vm = VM::new();
+        vm.gen_registers[1] = 3;
+        vm.keyboard = 0b0001000000000000;
+        vm.execute(Instruction::SKNP(1));
+        assert_eq!(vm.reg_pc, 1);
+    }
+
+    #[test]
+    fn instr_sknp_notpressed() {
+        let mut vm = VM::new();
+        vm.gen_registers[1] = 3;
+        vm.keyboard = 0b0010000000000000;
+        vm.execute(Instruction::SKNP(1));
+        assert_eq!(vm.reg_pc, 2);
+    }
+
+    #[test]
+    fn instr_ld3() {
+        let mut vm = VM::new();
+        vm.reg_delay = 3;
+        vm.execute(Instruction::LD3(1));
+        assert_eq!(vm.gen_registers[1], 3);
+        assert_eq!(vm.reg_pc, 1);
     }
 }
