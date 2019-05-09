@@ -1,3 +1,4 @@
+mod keys;
 mod render;
 
 use rand::rngs::mock::StepRng;
@@ -43,6 +44,7 @@ pub enum Instruction {
     SKP(u8),
     SKNP(u8),
     LD3(u8),
+    LD4(u8),
 }
 
 struct VM {
@@ -50,13 +52,14 @@ struct VM {
     stack: [u16; STACK_SIZE],
     display: [u64; 32],
     gen_registers: [u8; NUM_REGISTERS],
-    keyboard: u16,
     reg_i: u16,
     reg_pc: u16,
     reg_sp: u8,
     reg_delay: u8,
     reg_sound: u8,
     rng: Box<dyn rand::RngCore>,
+
+    keyboard: keys::Keyboard,
 }
 
 impl VM {
@@ -65,18 +68,20 @@ impl VM {
         let stack = create_stack();
         let display = create_display();
         let gen_registers = create_gen_registers();
+
         VM {
             memory,
             stack,
             display,
             gen_registers,
-            keyboard: 0,
             reg_i: 0,
             reg_pc: 0,
             reg_sp: 0,
             reg_delay: 0,
             reg_sound: 0,
             rng: Box::new(rand::thread_rng()),
+
+            keyboard: keys::Keyboard::new(),
         }
     }
 
@@ -246,26 +251,29 @@ impl VM {
                 self.reg_pc += 1;
             }
             Instruction::SKP(x) => {
-                let key = self.gen_registers[x as usize];
-                let mask = 1 << (15 - key);
-                if mask & self.keyboard == 0 {
-                    self.reg_pc += 1;
-                } else {
+                let key_num = self.gen_registers[x as usize];
+                let key = keys::Key::from_num(key_num).unwrap();
+                if self.keyboard.is_pressed(&key) {
                     self.reg_pc += 2;
+                } else {
+                    self.reg_pc += 1;
                 }
             }
             Instruction::SKNP(x) => {
-                let key = self.gen_registers[x as usize];
-                let mask = 1 << (15 - key);
-                if mask & self.keyboard == 0 {
-                    self.reg_pc += 2;
-                } else {
+                let key_num = self.gen_registers[x as usize];
+                let key = keys::Key::from_num(key_num).unwrap();
+                if self.keyboard.is_pressed(&key) {
                     self.reg_pc += 1;
+                } else {
+                    self.reg_pc += 2;
                 }
             }
             Instruction::LD3(x) => {
                 self.gen_registers[x as usize] = self.reg_delay;
                 self.reg_pc += 1;
+            }
+            Instruction::LD4(x) => {
+                self.keyboard.wait();
             }
             _ => {}
         }
@@ -298,9 +306,12 @@ fn create_sprite_mask(sprite: u8, x: u8) -> u64 {
 
 pub fn run() {
     let mut vm = VM::new();
-    let renderer = render::Renderer::new();
+    let renderer = render::Renderer::new(vm.keyboard.clone());
 
     let mut x = 0;
+
+    vm.execute(Instruction::LD4(1));
+
     loop {
         vm.reg_i = 0x200;
         vm.gen_registers[0] = 10 + (x % 32);
@@ -319,15 +330,19 @@ pub fn run() {
 mod test {
     use super::*;
 
+    fn create_vm() -> VM {
+        VM::new()
+    }
+
     #[test]
     fn execute_initial_pc() {
-        let vm = VM::new();
+        let vm = create_vm();
         assert_eq!(vm.reg_pc, 0);
     }
 
     #[test]
     fn instr_sys() {
-        let mut vm = VM::new();
+        let mut vm = create_vm();
         let instr = Instruction::SYS(1);
         vm.execute(instr);
 
@@ -337,7 +352,7 @@ mod test {
 
     #[test]
     fn instr_cls() {
-        let mut vm = VM::new();
+        let mut vm = create_vm();
 
         vm.display[0] = 0b1111;
 
@@ -353,7 +368,7 @@ mod test {
 
     #[test]
     fn instr_ret() {
-        let mut vm = VM::new();
+        let mut vm = create_vm();
 
         let stack_pc = 10;
         let sp = 5;
@@ -369,7 +384,7 @@ mod test {
 
     #[test]
     fn instr_jp() {
-        let mut vm = VM::new();
+        let mut vm = create_vm();
         let addr = 10;
         let instr = Instruction::JP(addr);
         vm.execute(instr);
@@ -379,7 +394,7 @@ mod test {
 
     #[test]
     fn instr_call() {
-        let mut vm = VM::new();
+        let mut vm = create_vm();
         vm.reg_pc = 5;
 
         let addr = 10;
@@ -393,7 +408,7 @@ mod test {
 
     #[test]
     fn instr_se_skip() {
-        let mut vm = VM::new();
+        let mut vm = create_vm();
         vm.gen_registers[2] = 10;
 
         vm.execute(Instruction::SE(2, 10));
@@ -403,7 +418,7 @@ mod test {
 
     #[test]
     fn instr_se_noskip() {
-        let mut vm = VM::new();
+        let mut vm = create_vm();
         vm.gen_registers[2] = 9;
 
         vm.execute(Instruction::SE(2, 10));
@@ -413,7 +428,7 @@ mod test {
 
     #[test]
     fn instr_sne_skip() {
-        let mut vm = VM::new();
+        let mut vm = create_vm();
         vm.gen_registers[2] = 9;
 
         vm.execute(Instruction::SNE(2, 10));
@@ -423,7 +438,7 @@ mod test {
 
     #[test]
     fn instr_sne_noskip() {
-        let mut vm = VM::new();
+        let mut vm = create_vm();
         vm.gen_registers[2] = 10;
 
         vm.execute(Instruction::SNE(2, 10));
@@ -433,7 +448,7 @@ mod test {
 
     #[test]
     fn instr_se2_skip() {
-        let mut vm = VM::new();
+        let mut vm = create_vm();
         vm.gen_registers[1] = 10;
         vm.gen_registers[2] = 10;
 
@@ -444,7 +459,7 @@ mod test {
 
     #[test]
     fn instr_se2_noskip() {
-        let mut vm = VM::new();
+        let mut vm = create_vm();
         vm.gen_registers[1] = 9;
         vm.gen_registers[2] = 10;
 
@@ -455,7 +470,7 @@ mod test {
 
     #[test]
     fn instr_ld() {
-        let mut vm = VM::new();
+        let mut vm = create_vm();
         vm.execute(Instruction::LD(3, 10));
 
         assert_eq!(vm.gen_registers[3], 10);
@@ -464,7 +479,7 @@ mod test {
 
     #[test]
     fn instr_add() {
-        let mut vm = VM::new();
+        let mut vm = create_vm();
         vm.gen_registers[1] = 1;
 
         vm.execute(Instruction::ADD(1, 10));
@@ -475,7 +490,7 @@ mod test {
 
     #[test]
     fn instr_ld2() {
-        let mut vm = VM::new();
+        let mut vm = create_vm();
         vm.gen_registers[1] = 9;
         vm.gen_registers[2] = 10;
         vm.execute(Instruction::LD2(1, 2));
@@ -486,7 +501,7 @@ mod test {
 
     #[test]
     fn instr_or() {
-        let mut vm = VM::new();
+        let mut vm = create_vm();
         vm.gen_registers[1] = 0b001;
         vm.gen_registers[2] = 0b011;
         vm.execute(Instruction::OR(1, 2));
@@ -497,7 +512,7 @@ mod test {
 
     #[test]
     fn instr_and() {
-        let mut vm = VM::new();
+        let mut vm = create_vm();
         vm.gen_registers[1] = 0b001;
         vm.gen_registers[2] = 0b011;
         vm.execute(Instruction::AND(1, 2));
@@ -508,7 +523,7 @@ mod test {
 
     #[test]
     fn instr_xor() {
-        let mut vm = VM::new();
+        let mut vm = create_vm();
         vm.gen_registers[1] = 0b001;
         vm.gen_registers[2] = 0b011;
         vm.execute(Instruction::XOR(1, 2));
@@ -519,7 +534,7 @@ mod test {
 
     #[test]
     fn instr_add2_nooverflow() {
-        let mut vm = VM::new();
+        let mut vm = create_vm();
         vm.gen_registers[1] = 0b10000000;
         vm.gen_registers[2] = 0b01111111;
         vm.gen_registers[0xF] = 2; // to make sure register is set to zero
@@ -532,7 +547,7 @@ mod test {
 
     #[test]
     fn instr_add2_overflow() {
-        let mut vm = VM::new();
+        let mut vm = create_vm();
         vm.gen_registers[1] = 0b10000000;
         vm.gen_registers[2] = 0b10000001;
         vm.execute(Instruction::ADD2(1, 2));
@@ -544,7 +559,7 @@ mod test {
 
     #[test]
     fn instr_sub_noborrow() {
-        let mut vm = VM::new();
+        let mut vm = create_vm();
         vm.gen_registers[1] = 3;
         vm.gen_registers[2] = 2;
         vm.execute(Instruction::SUB(1, 2));
@@ -556,7 +571,7 @@ mod test {
 
     #[test]
     fn instr_sub_borrow() {
-        let mut vm = VM::new();
+        let mut vm = create_vm();
         vm.gen_registers[1] = 2;
         vm.gen_registers[2] = 3;
         vm.gen_registers[0xF] = 2; // to make sure register is set to zero
@@ -569,7 +584,7 @@ mod test {
 
     #[test]
     fn instr_sub_equal() {
-        let mut vm = VM::new();
+        let mut vm = create_vm();
         vm.gen_registers[1] = 3;
         vm.gen_registers[2] = 3;
         vm.execute(Instruction::SUB(1, 2));
@@ -581,7 +596,7 @@ mod test {
 
     #[test]
     fn instr_shr_odd() {
-        let mut vm = VM::new();
+        let mut vm = create_vm();
         vm.gen_registers[1] = 0b111;
         vm.execute(Instruction::SHR(1, 2));
 
@@ -592,7 +607,7 @@ mod test {
 
     #[test]
     fn instr_shr_even() {
-        let mut vm = VM::new();
+        let mut vm = create_vm();
         vm.gen_registers[1] = 0b100;
         vm.gen_registers[0xF] = 2; // to make sure register is set to zero
         vm.execute(Instruction::SHR(1, 2));
@@ -604,7 +619,7 @@ mod test {
 
     #[test]
     fn instr_subn_noborrow() {
-        let mut vm = VM::new();
+        let mut vm = create_vm();
         vm.gen_registers[1] = 2;
         vm.gen_registers[2] = 3;
         vm.execute(Instruction::SUBN(1, 2));
@@ -616,7 +631,7 @@ mod test {
 
     #[test]
     fn instr_subn_borrow() {
-        let mut vm = VM::new();
+        let mut vm = create_vm();
         vm.gen_registers[1] = 3;
         vm.gen_registers[2] = 2;
         vm.gen_registers[0xF] = 2; // to make sure register is set to zero
@@ -629,7 +644,7 @@ mod test {
 
     #[test]
     fn instr_subn_even() {
-        let mut vm = VM::new();
+        let mut vm = create_vm();
         vm.gen_registers[1] = 3;
         vm.gen_registers[2] = 3;
         vm.gen_registers[0xF] = 2; // to make sure register is set to zero
@@ -642,7 +657,7 @@ mod test {
 
     #[test]
     fn instr_shr_nooverflow() {
-        let mut vm = VM::new();
+        let mut vm = create_vm();
         vm.gen_registers[1] = 0b11000000;
         vm.execute(Instruction::SHL(1, 2));
 
@@ -653,7 +668,7 @@ mod test {
 
     #[test]
     fn instr_shr_overflow() {
-        let mut vm = VM::new();
+        let mut vm = create_vm();
         vm.gen_registers[1] = 0b01000000;
         vm.gen_registers[0xF] = 2; // to make sure register is set to zero
         vm.execute(Instruction::SHL(1, 2));
@@ -665,7 +680,7 @@ mod test {
 
     #[test]
     fn instr_sne2_skip() {
-        let mut vm = VM::new();
+        let mut vm = create_vm();
         vm.gen_registers[1] = 8;
         vm.gen_registers[2] = 9;
 
@@ -676,7 +691,7 @@ mod test {
 
     #[test]
     fn instr_sne2_noskip() {
-        let mut vm = VM::new();
+        let mut vm = create_vm();
         vm.gen_registers[1] = 10;
         vm.gen_registers[2] = 10;
 
@@ -687,7 +702,7 @@ mod test {
 
     #[test]
     fn instr_ldi() {
-        let mut vm = VM::new();
+        let mut vm = create_vm();
         vm.execute(Instruction::LDI(0x555));
 
         assert_eq!(vm.reg_i, 0x555);
@@ -696,7 +711,7 @@ mod test {
 
     #[test]
     fn instr_jpv0() {
-        let mut vm = VM::new();
+        let mut vm = create_vm();
         vm.gen_registers[0] = 3;
         vm.execute(Instruction::JPV0(0x300));
 
@@ -705,7 +720,7 @@ mod test {
 
     #[test]
     fn instr_rnd() {
-        let mut vm = VM::new();
+        let mut vm = create_vm();
         vm.rng = Box::new(StepRng::new(0b110, 1));
 
         vm.execute(Instruction::RND(1, 0b101));
@@ -716,7 +731,7 @@ mod test {
 
     #[test]
     fn instr_drw() {
-        let mut vm = VM::new();
+        let mut vm = create_vm();
 
         let sprite1 = 0b11 << 3;
         let sprite2 = 0b11 << 2;
@@ -747,7 +762,7 @@ mod test {
 
     #[test]
     fn instr_drw_collision() {
-        let mut vm = VM::new();
+        let mut vm = create_vm();
 
         vm.display[0] = 0b1;
         vm.memory[MEM_PROGRAM_START as usize] = 0b1;
@@ -763,46 +778,74 @@ mod test {
 
     #[test]
     fn instr_skp_pressed() {
-        let mut vm = VM::new();
+        let mut vm = create_vm();
+        vm.keyboard = keys::Keyboard::new();
+        vm.keyboard.set_pressed(keys::Key::Key3);
         vm.gen_registers[1] = 3;
-        vm.keyboard = 0b0001000000000000;
+
         vm.execute(Instruction::SKP(1));
+
         assert_eq!(vm.reg_pc, 2);
     }
 
     #[test]
     fn instr_skp_notpressed() {
-        let mut vm = VM::new();
+        let mut vm = create_vm();
+        vm.keyboard = keys::Keyboard::new();
+        vm.keyboard.set_pressed(keys::Key::Key2);
         vm.gen_registers[1] = 3;
-        vm.keyboard = 0b0010000000000000;
+
         vm.execute(Instruction::SKP(1));
+
         assert_eq!(vm.reg_pc, 1);
     }
 
     #[test]
     fn instr_sknp_pressed() {
-        let mut vm = VM::new();
+        let mut vm = create_vm();
+        vm.keyboard = keys::Keyboard::new();
+        vm.keyboard.set_pressed(keys::Key::Key3);
         vm.gen_registers[1] = 3;
-        vm.keyboard = 0b0001000000000000;
+
         vm.execute(Instruction::SKNP(1));
         assert_eq!(vm.reg_pc, 1);
     }
 
     #[test]
     fn instr_sknp_notpressed() {
-        let mut vm = VM::new();
+        let mut vm = create_vm();
+        vm.keyboard = keys::Keyboard::new();
+        vm.keyboard.set_pressed(keys::Key::Key2);
         vm.gen_registers[1] = 3;
-        vm.keyboard = 0b0010000000000000;
+
         vm.execute(Instruction::SKNP(1));
+
         assert_eq!(vm.reg_pc, 2);
     }
 
     #[test]
     fn instr_ld3() {
-        let mut vm = VM::new();
+        let mut vm = create_vm();
         vm.reg_delay = 3;
         vm.execute(Instruction::LD3(1));
         assert_eq!(vm.gen_registers[1], 3);
         assert_eq!(vm.reg_pc, 1);
+    }
+
+    // TODO: This test will probably fail occasionally - can we do better?
+    #[test]
+    fn instr_ld4() {
+        let mut vm = create_vm();
+
+        let keyboard2 = vm.keyboard.clone();
+        thread::spawn(move || {
+            keyboard2.set_pressed(keys::Key::Key4);
+        });
+
+        vm.execute(Instruction::LD4(1));
+
+        assert_eq!(vm.reg_pc, 0);
+
+        vm.execute(Instruction::CLS);
     }
 }

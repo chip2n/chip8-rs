@@ -1,4 +1,7 @@
+use super::keys;
+
 use std::sync::mpsc;
+use std::sync::{Arc, Mutex};
 use std::thread;
 
 use ggez::conf;
@@ -16,7 +19,7 @@ pub struct Renderer {
 }
 
 impl Renderer {
-    pub fn new() -> Self {
+    pub fn new(keys: keys::Keyboard) -> Self {
         let (tx, rx) = mpsc::channel();
 
         let handle = thread::spawn(|| {
@@ -27,7 +30,7 @@ impl Renderer {
                     .build()
                     .expect("Unable to create ggex context!");
 
-            let mut game = MyGame::new(ctx, rx);
+            let mut game = MyGame::new(ctx, rx, keys);
 
             match event::run(ctx, event_loop, &mut game) {
                 Ok(_) => println!("Exited cleanly."),
@@ -48,10 +51,11 @@ struct MyGame {
     pixel_mesh: Mesh,
     display: Display,
     receiver: mpsc::Receiver<Display>,
+    keys: keys::Keyboard,
 }
 
 impl MyGame {
-    fn new(ctx: &mut Context, receiver: mpsc::Receiver<Display>) -> MyGame {
+    fn new(ctx: &mut Context, receiver: mpsc::Receiver<Display>, keys: keys::Keyboard) -> MyGame {
         let mut rect = Rect::one();
         rect.scale(10.0, 10.0);
         let mesh = Mesh::new_rectangle(ctx, DrawMode::fill(), rect, Color::new(0.0, 1.0, 0.0, 1.0))
@@ -62,6 +66,7 @@ impl MyGame {
             pixel_mesh: mesh,
             display: [0; 32],
             receiver,
+            keys,
         }
     }
 }
@@ -76,7 +81,7 @@ impl EventHandler for MyGame {
     }
 
     fn draw(&mut self, ctx: &mut Context) -> GameResult<()> {
-        println!("delta: {}", self.dt.subsec_nanos());
+        //println!("delta: {}", self.dt.subsec_nanos());
 
         graphics::clear(ctx, Color::new(1.0, 0.0, 0.0, 1.0));
 
@@ -107,5 +112,7 @@ impl EventHandler for MyGame {
             "Key pressed: {:?}, modifier {:?}, repeat: {}",
             keycode, keymod, repeat
         );
+        // TODO: send correct key
+        self.keys.set_pressed(keys::Key::Key3);
     }
 }
