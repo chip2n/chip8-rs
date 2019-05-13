@@ -50,6 +50,7 @@ pub enum Instruction {
     LD5(u8),
     LD6(u8),
     ADD3(u8),
+    LD7(u8),
 }
 
 struct VM {
@@ -294,13 +295,119 @@ impl VM {
                 self.reg_i = self.reg_i + self.gen_registers[x as usize] as u16;
                 self.reg_pc += 1;
             }
+            Instruction::LD7(x) => {
+                let d = self.gen_registers[x as usize];
+                self.reg_i = digit(d) as u16;
+                self.reg_pc += 1;
+            }
             _ => {}
         }
     }
 }
 
+fn digit(digit: u8) -> usize {
+    (digit * 5) as usize
+}
+
 fn create_memory() -> [u8; RAM_SIZE] {
-    let array = [0; RAM_SIZE];
+    let mut array = [0; RAM_SIZE];
+
+    array[digit(0) + 0] = 0xF0;
+    array[digit(0) + 1] = 0x90;
+    array[digit(0) + 2] = 0x90;
+    array[digit(0) + 3] = 0x90;
+    array[digit(0) + 4] = 0xF0;
+
+    array[digit(1) + 0] = 0x20;
+    array[digit(1) + 1] = 0x60;
+    array[digit(1) + 2] = 0x20;
+    array[digit(1) + 3] = 0x20;
+    array[digit(1) + 4] = 0x70;
+
+    array[digit(2) + 0] = 0xF0;
+    array[digit(2) + 1] = 0x10;
+    array[digit(2) + 2] = 0xF0;
+    array[digit(2) + 3] = 0x80;
+    array[digit(2) + 4] = 0xF0;
+
+    array[digit(3) + 0] = 0xF0;
+    array[digit(3) + 1] = 0x10;
+    array[digit(3) + 2] = 0xF0;
+    array[digit(3) + 3] = 0x10;
+    array[digit(3) + 4] = 0xF0;
+
+    array[digit(4) + 0] = 0x90;
+    array[digit(4) + 1] = 0x90;
+    array[digit(4) + 2] = 0xF0;
+    array[digit(4) + 3] = 0x10;
+    array[digit(4) + 4] = 0x10;
+
+    array[digit(5) + 0] = 0xF0;
+    array[digit(5) + 1] = 0x80;
+    array[digit(5) + 2] = 0xF0;
+    array[digit(5) + 3] = 0x10;
+    array[digit(5) + 4] = 0xF0;
+
+    array[digit(6) + 0] = 0xF0;
+    array[digit(6) + 1] = 0x80;
+    array[digit(6) + 2] = 0xF0;
+    array[digit(6) + 3] = 0x90;
+    array[digit(6) + 4] = 0xF0;
+
+    array[digit(7) + 0] = 0xF0;
+    array[digit(7) + 1] = 0x10;
+    array[digit(7) + 2] = 0x20;
+    array[digit(7) + 3] = 0x40;
+    array[digit(7) + 4] = 0x40;
+
+    array[digit(8) + 0] = 0xF0;
+    array[digit(8) + 1] = 0x90;
+    array[digit(8) + 2] = 0xF0;
+    array[digit(8) + 3] = 0x90;
+    array[digit(8) + 4] = 0xF0;
+
+    array[digit(9) + 0] = 0xF0;
+    array[digit(9) + 1] = 0x90;
+    array[digit(9) + 2] = 0xF0;
+    array[digit(9) + 3] = 0x10;
+    array[digit(9) + 4] = 0xF0;
+
+    array[digit(10) + 0] = 0xF0;
+    array[digit(10) + 1] = 0x90;
+    array[digit(10) + 2] = 0xF0;
+    array[digit(10) + 3] = 0x90;
+    array[digit(10) + 4] = 0x90;
+
+    array[digit(11) + 0] = 0xE0;
+    array[digit(11) + 1] = 0x90;
+    array[digit(11) + 2] = 0xE0;
+    array[digit(11) + 3] = 0x90;
+    array[digit(11) + 4] = 0xE0;
+
+    array[digit(12) + 0] = 0xF0;
+    array[digit(12) + 1] = 0x80;
+    array[digit(12) + 2] = 0x80;
+    array[digit(12) + 3] = 0x80;
+    array[digit(12) + 4] = 0xF0;
+
+    array[digit(13) + 0] = 0xE0;
+    array[digit(13) + 1] = 0x90;
+    array[digit(13) + 2] = 0x90;
+    array[digit(13) + 3] = 0x90;
+    array[digit(13) + 4] = 0xE0;
+
+    array[digit(14) + 0] = 0xF0;
+    array[digit(14) + 1] = 0x80;
+    array[digit(14) + 2] = 0xF0;
+    array[digit(14) + 3] = 0x80;
+    array[digit(14) + 4] = 0xF0;
+
+    array[digit(15) + 0] = 0xF0;
+    array[digit(15) + 1] = 0x80;
+    array[digit(15) + 2] = 0xF0;
+    array[digit(15) + 3] = 0x80;
+    array[digit(15) + 4] = 0x80;
+
     array
 }
 
@@ -894,6 +1001,16 @@ mod test {
         vm.gen_registers[1] = 4;
         vm.execute(Instruction::ADD3(1));
         assert_eq!(vm.reg_i, 7);
+        assert_eq!(vm.reg_pc, 1);
+    }
+
+    #[test]
+    fn instr_ld7() {
+        let mut vm = create_vm();
+        vm.reg_i = 3;
+        vm.gen_registers[1] = 4;
+        vm.execute(Instruction::LD7(1));
+        assert_eq!(vm.reg_i, digit(4) as u16);
         assert_eq!(vm.reg_pc, 1);
     }
 }
