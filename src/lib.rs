@@ -47,6 +47,7 @@ pub enum Instruction {
     SKNP(u8),
     LD3(u8),
     LD4(u8),
+    LD5(u8),
 }
 
 struct VM {
@@ -277,6 +278,10 @@ impl VM {
             Instruction::LD4(x) => {
                 let key = self.keyboard.wait();
                 self.gen_registers[x as usize] = key.to_num();
+                self.reg_pc += 1;
+            }
+            Instruction::LD5(x) => {
+                self.reg_delay = self.gen_registers[x as usize];
                 self.reg_pc += 1;
             }
             _ => {}
@@ -850,5 +855,15 @@ mod test {
 
         assert_eq!(vm.reg_pc, 1);
         assert_eq!(vm.gen_registers[1], 4);
+    }
+
+    #[test]
+    fn instr_ld5() {
+        let mut vm = create_vm();
+        vm.reg_delay = 3;
+        vm.gen_registers[1] = 4;
+        vm.execute(Instruction::LD5(1));
+        assert_eq!(vm.reg_delay, 4);
+        assert_eq!(vm.reg_pc, 1);
     }
 }
