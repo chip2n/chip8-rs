@@ -49,6 +49,7 @@ pub enum Instruction {
     LD4(u8),
     LD5(u8),
     LD6(u8),
+    ADD3(u8),
 }
 
 struct VM {
@@ -287,6 +288,10 @@ impl VM {
             }
             Instruction::LD6(x) => {
                 self.reg_sound = self.gen_registers[x as usize];
+                self.reg_pc += 1;
+            }
+            Instruction::ADD3(x) => {
+                self.reg_i = self.reg_i + self.gen_registers[x as usize] as u16;
                 self.reg_pc += 1;
             }
             _ => {}
@@ -879,6 +884,16 @@ mod test {
         vm.gen_registers[1] = 4;
         vm.execute(Instruction::LD6(1));
         assert_eq!(vm.reg_sound, 4);
+        assert_eq!(vm.reg_pc, 1);
+    }
+
+    #[test]
+    fn instr_add3() {
+        let mut vm = create_vm();
+        vm.reg_i = 3;
+        vm.gen_registers[1] = 4;
+        vm.execute(Instruction::ADD3(1));
+        assert_eq!(vm.reg_i, 7);
         assert_eq!(vm.reg_pc, 1);
     }
 }
