@@ -1,3 +1,5 @@
+#![feature(wait_until)]
+
 mod keys;
 mod render;
 
@@ -273,7 +275,9 @@ impl VM {
                 self.reg_pc += 1;
             }
             Instruction::LD4(x) => {
-                self.keyboard.wait();
+                let key = self.keyboard.wait();
+                self.gen_registers[x as usize] = key.to_num();
+                self.reg_pc += 1;
             }
             _ => {}
         }
@@ -844,8 +848,7 @@ mod test {
 
         vm.execute(Instruction::LD4(1));
 
-        assert_eq!(vm.reg_pc, 0);
-
-        vm.execute(Instruction::CLS);
+        assert_eq!(vm.reg_pc, 1);
+        assert_eq!(vm.gen_registers[1], 4);
     }
 }

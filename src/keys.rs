@@ -1,9 +1,9 @@
-use num_derive::FromPrimitive;
-use num_traits::FromPrimitive;
+use num_derive::{FromPrimitive, ToPrimitive};
+use num_traits::{FromPrimitive, ToPrimitive};
 use std::collections::HashSet;
 use std::sync::{Arc, Condvar, Mutex};
 
-#[derive(PartialEq, Eq, Hash, FromPrimitive, Debug)]
+#[derive(Copy, Clone, PartialEq, Eq, Hash, FromPrimitive, ToPrimitive, Debug)]
 pub enum Key {
     Key0,
     Key1,
@@ -26,6 +26,10 @@ pub enum Key {
 impl Key {
     pub fn from_num(num: u8) -> Option<Key> {
         FromPrimitive::from_u8(num)
+    }
+
+    pub fn to_num(&self) -> u8 {
+        ToPrimitive::to_u8(self).unwrap()
     }
 }
 
@@ -52,14 +56,25 @@ impl Keyboard {
         self.keys.1.notify_all();
     }
 
-    pub fn set_unpressed(&self, key: &Key) {
+    pub fn set_unpressed(&self, key: Key) {
         let mut k = self.keys.0.lock().unwrap();
-        (*k).remove(key);
+        (*k).remove(&key);
         self.keys.1.notify_all();
     }
 
-    pub fn wait(&mut self) {
-        let currentKeys = self.keys.0.lock().unwrap();
-        let newKeys = self.keys.1.wait(currentKeys).unwrap();
+    pub fn wait(&mut self) -> Key {
+        let guard = self.keys.0.lock().unwrap();
+        let current_keys = (*guard).clone();
+
+        let new_keys = self.keys.1.wait_until(
+            guard,
+            |x| {
+                let result: HashSet<&Key> = x.difference(&current_keys).collect();
+                !result.is_empty()
+            }
+        ).unwrap();
+
+        let result: HashSet<&Key> = (*new_keys).difference(&current_keys).collect();
+        **result.iter().nth(0).unwrap()
     }
 }
