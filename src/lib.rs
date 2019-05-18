@@ -51,6 +51,9 @@ pub enum Instruction {
     LD6(u8),
     ADD3(u8),
     LD7(u8),
+    LD8(u8),
+    LD9(u8),
+    LD10(u8),
 }
 
 struct VM {
@@ -298,6 +301,31 @@ impl VM {
             Instruction::LD7(x) => {
                 let d = self.gen_registers[x as usize];
                 self.reg_i = digit(d) as u16;
+                self.reg_pc += 1;
+            }
+            Instruction::LD8(x) => {
+                let i = self.reg_i as usize;
+                let v = self.gen_registers[x as usize];
+
+                let hundred = v / 100;
+                let ten = (v - (100 * hundred)) / 10;
+                let one = v - (100 * hundred) - (10 * ten);
+
+                self.memory[i] = hundred;
+                self.memory[i + 1] = ten;
+                self.memory[i + 2] = one;
+                self.reg_pc += 1;
+            }
+            Instruction::LD9(x) => {
+                for i in 0..x + 1 {
+                    self.memory[(self.reg_i + i as u16) as usize] = self.gen_registers[i as usize];
+                }
+                self.reg_pc += 1;
+            }
+            Instruction::LD10(x) => {
+                for i in 0..x + 1 {
+                    self.gen_registers[i as usize] = self.memory[(self.reg_i + i as u16) as usize];
+                }
                 self.reg_pc += 1;
             }
             _ => {}
@@ -1011,6 +1039,56 @@ mod test {
         vm.gen_registers[1] = 4;
         vm.execute(Instruction::LD7(1));
         assert_eq!(vm.reg_i, digit(4) as u16);
+        assert_eq!(vm.reg_pc, 1);
+    }
+
+    #[test]
+    fn instr_ld8() {
+        let mut vm = create_vm();
+        vm.reg_i = 3;
+        vm.gen_registers[1] = 123;
+        vm.execute(Instruction::LD8(1));
+        assert_eq!(vm.memory[3], 1);
+        assert_eq!(vm.memory[4], 2);
+        assert_eq!(vm.memory[5], 3);
+        assert_eq!(vm.reg_pc, 1);
+    }
+
+    #[test]
+    fn instr_ld9() {
+        let mut vm = create_vm();
+        let start = MEM_PROGRAM_START as usize;
+        vm.reg_i = start as u16;
+        vm.gen_registers[0] = 4;
+        vm.gen_registers[1] = 5;
+        vm.gen_registers[2] = 6;
+        vm.gen_registers[3] = 7;
+
+        vm.execute(Instruction::LD9(2));
+
+        assert_eq!(vm.memory[start], 4);
+        assert_eq!(vm.memory[start + 1], 5);
+        assert_eq!(vm.memory[start + 2], 6);
+        assert_eq!(vm.memory[start + 3], 0);
+        assert_eq!(vm.reg_pc, 1);
+    }
+
+    #[test]
+    fn instr_ld10() {
+        let mut vm = create_vm();
+        let start = MEM_PROGRAM_START as usize;
+        vm.reg_i = start as u16;
+        vm.memory[start] = 4;
+        vm.memory[start + 1] = 5;
+        vm.memory[start + 2] = 6;
+        vm.memory[start + 3] = 7;
+
+        vm.execute(Instruction::LD10(2));
+
+        assert_eq!(vm.gen_registers[0], 4);
+        assert_eq!(vm.gen_registers[1], 5);
+        assert_eq!(vm.gen_registers[2], 6);
+        assert_eq!(vm.gen_registers[3], 0);
         assert_eq!(vm.reg_pc, 1);
     }
 }
